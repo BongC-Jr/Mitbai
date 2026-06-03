@@ -53,8 +53,18 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Check if the bot is mentioned or if it's a DM
-    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
+    # Check if the bot is mentioned, the message is a reply to the bot, or if it's a DM
+    is_mentioned = bot.user in message.mentions or bot.user.mentioned_in(message)
+    is_reply_to_bot = False
+    if message.reference and getattr(message, 'reference').resolved:
+        resolved = message.reference.resolved
+        try:
+            # resolved can be a Message when Discord caches it
+            is_reply_to_bot = isinstance(resolved, discord.Message) and resolved.author.id == bot.user.id
+        except Exception:
+            is_reply_to_bot = False
+
+    if is_mentioned or is_reply_to_bot or isinstance(message.channel, discord.DMChannel):
         async with message.channel.typing():
             try:
                 # Get or create chat history for this specific user
@@ -62,8 +72,10 @@ async def on_message(message):
                 if user_id not in chat_sessions:
                     chat_sessions[user_id] = model.start_chat(history=[])
 
-                # Clean the message (remove the bot mention)
+                # Clean the message (remove the bot mention tokens if present)
                 clean_text = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '')
+                # Also strip common plain-text mentions like '@BotName'
+                clean_text = clean_text.replace(f'@{bot.user.name}', '').strip()
 
                 # Send to Gemini
                 response = chat_sessions[user_id].send_message(clean_text)
